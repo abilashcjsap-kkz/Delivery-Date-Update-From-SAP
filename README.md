@@ -27,4 +27,4 @@ pip install -r requirements.txt
 python app.py
 ```
 
-Open `http://localhost:5000`, enter a sales order number, created date, or created by user, select item rows, enter the delivery address, and generate the delivery date.
+Open `http://localhost:5000`, enter a sales order number, created date, or created by user, and click **Fetch Sales Details**. The search results display sales order basic details, including net value and delivery status. Click **View Items** for a sales order to open the item-detail page; the app fetches ship-to details from `ZI_SHIP_TO_CDS/ZI_SHIP_TO`, validates each line, auto-populates delivery dates with Gemini AI planning, and lets you show or hide the tool trace.

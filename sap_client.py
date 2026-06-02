@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 from config import SAP_BASE_URL, SAP_PASSWORD, SAP_TIMEOUT_SECONDS, SAP_USERNAME
 
 SALES_ORDER_PATH = "/sap/opu/odata/sap/API_SALES_ORDER_SRV/A_SalesOrder"
+SHIP_TO_PATH = "/sap/opu/odata/sap/ZI_SHIP_TO_CDS/ZI_SHIP_TO"
 
 
 def _sap_auth() -> Optional[tuple[str, str]]:
@@ -112,6 +113,7 @@ def _normalize_sales_order(raw: Dict[str, Any]) -> Dict[str, Any]:
         "purchaseOrderByCustomer": raw.get("PurchaseOrderByCustomer", ""),
         "totalNetAmount": raw.get("TotalNetAmount", ""),
         "currency": raw.get("TransactionCurrency", ""),
+        "deliveryStatus": raw.get("OverallTotalDeliveryStatus", ""),
         "overallDeliveryStatus": raw.get("OverallTotalDeliveryStatus", ""),
         "items": items,
     }
@@ -133,6 +135,62 @@ def get_sales_orders(
     orders = [_normalize_sales_order(order) for order in _odata_results(payload)]
     return {"source": "S4", "salesOrders": orders, "count": len(orders)}
 
+
+
+def _address_parts(raw: Dict[str, Any]) -> List[str]:
+    fields = [
+        "Name1",
+        "Name2",
+        "Building",
+        "HouseNum1",
+        "Street",
+        "StrSuppl1",
+        "StrSuppl2",
+        "City2",
+        "City1",
+        "Region",
+        "PostCode1",
+        "Country",
+    ]
+    return [str(raw.get(field, "")).strip() for field in fields if str(raw.get(field, "")).strip()]
+
+
+def _normalize_ship_to(raw: Dict[str, Any]) -> Dict[str, Any]:
+    parts = _address_parts(raw)
+    return {
+        "partner": raw.get("Partner", ""),
+        "addrnumber": raw.get("Addrnumber", ""),
+        "name": raw.get("Name1", ""),
+        "city": raw.get("City1", ""),
+        "district": raw.get("City2", ""),
+        "street": raw.get("Street", ""),
+        "building": raw.get("Building", ""),
+        "postalCode": raw.get("PostCode1", ""),
+        "country": raw.get("Country", ""),
+        "region": raw.get("Region", ""),
+        "telephone": raw.get("TelNumber", ""),
+        "address": ", ".join(parts),
+    }
+
+
+def get_ship_to_addresses(partner: str = "", top: int = 20) -> Dict[str, Any]:
+    """Fetch ship-to addresses from ZI_SHIP_TO_CDS for delivery-date validation."""
+    params: Dict[str, Any] = {"$top": top, "$format": "json"}
+    if partner:
+        params["$filter"] = f"Partner eq '{_escape_odata_value(partner.strip())}'"
+
+    payload = _sap_get(SHIP_TO_PATH, params=params)
+    addresses = [_normalize_ship_to(row) for row in _odata_results(payload)]
+    return {"source": "S4", "shipToAddresses": addresses, "count": len(addresses)}
+
+
+def get_best_ship_to_address(partner: str = "") -> Dict[str, Any]:
+    """Return the first configured ship-to address for a partner."""
+    result = get_ship_to_addresses(partner=partner, top=20)
+    addresses = result.get("shipToAddresses", [])
+    if not addresses:
+        return {"found": False, "message": "Ship-to address not found.", "address": ""}
+    return {"found": True, **addresses[0]}
 
 def get_materials(search: str = "", top: int = 500) -> List[Dict[str, Any]]:
     """Placeholder material lookup retained for backwards-compatible screens."""

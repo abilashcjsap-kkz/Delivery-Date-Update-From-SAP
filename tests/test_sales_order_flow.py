@@ -3,7 +3,7 @@ import importlib
 import pytest
 
 from config import GEMINI_MODEL, load_dotenv
-from sap_client import get_sales_orders, parse_sap_date
+from sap_client import get_sales_orders, get_ship_to_addresses, parse_sap_date
 
 
 SAMPLE_SALES_ORDER = {
@@ -47,6 +47,27 @@ SAMPLE_SALES_ORDER = {
 }
 
 
+SAMPLE_SHIP_TO = {
+    "d": {
+        "results": [
+            {
+                "Addrnumber": "24044",
+                "Partner": "6100000",
+                "Name1": "M/s. Abacus Pharma (Africa) Limited",
+                "City1": "Kampala",
+                "City2": "Lugogo",
+                "PostCode1": "010102",
+                "Street": "UMA Show Grounds",
+                "Building": "Plot Nos. 28B, 32B,",
+                "Country": "UG",
+                "Region": "C",
+                "TelNumber": "919999999999",
+            }
+        ]
+    }
+}
+
+
 def test_parse_sap_date():
     assert parse_sap_date("/Date(1741564800000)/") == "2025-03-10"
 
@@ -65,6 +86,29 @@ def test_load_dotenv_keeps_existing_environment(monkeypatch, tmp_path):
 
     assert importlib.import_module("os").environ["SAP_BASE_URL"] == "http://from-file.example:8000"
     assert importlib.import_module("os").environ["GEMINI_API_KEY"] == "already-exported"
+
+
+def test_get_ship_to_addresses_normalizes_address(monkeypatch):
+    captured = {}
+
+    def fake_sap_get(path, params):
+        captured["path"] = path
+        captured["params"] = params
+        return SAMPLE_SHIP_TO
+
+    monkeypatch.setattr("sap_client._sap_get", fake_sap_get)
+
+    result = get_ship_to_addresses(partner="6100000")
+
+    assert result["count"] == 1
+    assert "ZI_SHIP_TO_CDS/ZI_SHIP_TO" in captured["path"]
+    assert captured["params"]["$top"] == 20
+    assert "Partner eq '6100000'" in captured["params"]["$filter"]
+    address = result["shipToAddresses"][0]
+    assert address["partner"] == "6100000"
+    assert address["name"] == "M/s. Abacus Pharma (Africa) Limited"
+    assert "Kampala" in address["address"]
+    assert "UG" in address["address"]
 
 
 def test_get_sales_orders_normalizes_expanded_items(monkeypatch):
@@ -141,3 +185,55 @@ def test_quote_accepts_selected_sales_order_items(client, monkeypatch):
     assert data["salesOrder"] == "1"
     assert data["lines"][0]["salesOrderItem"] == "10"
     assert data["answer"] == "Delivery date is 2026-06-07"
+
+
+def test_delivery_validation_autopopulates_line_results(client, monkeypatch):
+    def fake_ship_to(customer_number):
+        return {"found": True, "partner": customer_number, "name": "Ship To", "address": "Ship To Street, City"}
+
+    def fake_agent(customer, address, lines, customer_number=""):
+        return {
+            "answer": "Delivery dates populated",
+            "tool_trace": [
+                {
+                    "tool": "get_delivery_options",
+                    "input": lines[0],
+                    "output": {
+                        "recommended_by_rule_engine": {
+                            "scenario": "FULL_STOCK_FROM_ONE_PLANT",
+                            "delivery_date": "2026-06-07",
+                        }
+                    },
+                }
+            ],
+            "turns": 1,
+            "mode": "test",
+        }
+
+    monkeypatch.setattr("app.get_best_ship_to_address", fake_ship_to)
+    monkeypatch.setattr("app.run_gemini_agent", fake_agent)
+
+    response = client.post(
+        "/api/delivery-validation",
+        json={
+            "salesOrder": "1",
+            "customerNumber": "6100000",
+            "lines": [
+                {
+                    "salesOrder": "1",
+                    "salesOrderItem": "10",
+                    "material": "6000000195",
+                    "quantity": "1296",
+                    "description": "Comfy Dry Extra Long Hanger Pack NP3",
+                    "unit": "PAC",
+                    "plant": "CBGL",
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["shipToAddress"]["partner"] == "6100000"
+    assert data["lineResults"][0]["deliveryDate"] == "2026-06-07"
+    assert data["lineResults"][0]["validationStatus"] == "Validated"
