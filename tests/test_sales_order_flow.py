@@ -1,6 +1,8 @@
+import importlib
+
 import pytest
 
-import app as flask_app
+from config import load_dotenv
 from sap_client import get_sales_orders, parse_sap_date
 
 
@@ -49,6 +51,18 @@ def test_parse_sap_date():
     assert parse_sap_date("/Date(1741564800000)/") == "2025-03-10"
 
 
+def test_load_dotenv_keeps_existing_environment(monkeypatch, tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("SAP_BASE_URL=http://from-file.example:8000\nGEMINI_API_KEY=from-file\n", encoding="utf-8")
+    monkeypatch.setenv("GEMINI_API_KEY", "already-exported")
+    monkeypatch.delenv("SAP_BASE_URL", raising=False)
+
+    load_dotenv(env_file)
+
+    assert importlib.import_module("os").environ["SAP_BASE_URL"] == "http://from-file.example:8000"
+    assert importlib.import_module("os").environ["GEMINI_API_KEY"] == "already-exported"
+
+
 def test_get_sales_orders_normalizes_expanded_items(monkeypatch):
     captured = {}
 
@@ -74,6 +88,9 @@ def test_get_sales_orders_normalizes_expanded_items(monkeypatch):
 
 @pytest.fixture
 def client(monkeypatch):
+    flask = pytest.importorskip("flask")
+    del flask
+    flask_app = importlib.import_module("app")
     flask_app.app.config.update(TESTING=True)
     return flask_app.app.test_client()
 

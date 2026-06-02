@@ -2,16 +2,28 @@
 
 Flask application for fetching SAP S/4HANA sales orders through `API_SALES_ORDER_SRV`, selecting order items, and generating a Gemini-assisted delivery date promise.
 
-## Required environment variables
+## Configuration
 
-- `SAP_BASE_URL` - SAP host, for example `http://sap-host:8000`.
-- `SAP_USERNAME` / `SAP_PASSWORD` - optional basic-auth credentials for SAP OData.
-- `GEMINI_API_KEY` - optional Gemini key. Without it, the app returns deterministic fallback delivery promises.
+The app now includes both `.env` and `.env.example` at the project root. Edit `.env` and replace the placeholder values before running locally.
+
+```dotenv
+SAP_BASE_URL=http://AHCLS4ADQA.amrutanjan.com:8000
+SAP_USERNAME=your_sap_username
+SAP_PASSWORD=your_sap_password
+GEMINI_API_KEY=your_gemini_api_key
+GEMINI_MODEL=gemini-1.5-flash
+```
+
+Notes:
+
+- `SAP_BASE_URL` should be only the SAP host/base URL. The app appends `/sap/opu/odata/sap/API_SALES_ORDER_SRV/A_SalesOrder` automatically.
+- `GEMINI_API_KEY` is optional for fallback/demo mode, but required for live Gemini responses.
+- Environment variables already exported in your shell take priority over `.env` values.
 
 ## Run locally
 
 ```bash
-pip install flask requests pytest
+pip install -r requirements.txt
 python app.py
 ```
 

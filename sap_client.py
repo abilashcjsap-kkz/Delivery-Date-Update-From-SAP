@@ -6,23 +6,22 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-import requests
-from requests.auth import HTTPBasicAuth
-
 from config import SAP_BASE_URL, SAP_PASSWORD, SAP_TIMEOUT_SECONDS, SAP_USERNAME
 
 SALES_ORDER_PATH = "/sap/opu/odata/sap/API_SALES_ORDER_SRV/A_SalesOrder"
 
 
-def _sap_auth() -> Optional[HTTPBasicAuth]:
+def _sap_auth() -> Optional[tuple[str, str]]:
     if SAP_USERNAME and SAP_PASSWORD:
-        return HTTPBasicAuth(SAP_USERNAME, SAP_PASSWORD)
+        return SAP_USERNAME, SAP_PASSWORD
     return None
 
 
 def _sap_get(path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     if not SAP_BASE_URL:
         raise RuntimeError("SAP_BASE_URL is not configured.")
+
+    import requests
 
     url = f"{SAP_BASE_URL}{path}"
     response = requests.get(
