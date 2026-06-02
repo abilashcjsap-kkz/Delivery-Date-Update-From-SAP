@@ -11,7 +11,7 @@ SAP_BASE_URL=http://AHCLS4ADQA.amrutanjan.com:8000
 SAP_USERNAME=your_sap_username
 SAP_PASSWORD=your_sap_password
 GEMINI_API_KEY=your_gemini_api_key
-GEMINI_MODEL=gemini-1.5-flash
+GEMINI_MODEL=gemini-2.5-flash
 ```
 
 Notes:

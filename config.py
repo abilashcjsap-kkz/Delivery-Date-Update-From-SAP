@@ -31,7 +31,7 @@ SAP_PASSWORD = os.getenv("SAP_PASSWORD", "")
 SAP_TIMEOUT_SECONDS = int(os.getenv("SAP_TIMEOUT_SECONDS", "30"))
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 GEMINI_URL = os.getenv(
     "GEMINI_URL",
     f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}",

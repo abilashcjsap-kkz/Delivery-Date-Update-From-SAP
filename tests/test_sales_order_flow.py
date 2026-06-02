@@ -2,7 +2,7 @@ import importlib
 
 import pytest
 
-from config import load_dotenv
+from config import GEMINI_MODEL, load_dotenv
 from sap_client import get_sales_orders, parse_sap_date
 
 
@@ -49,6 +49,10 @@ SAMPLE_SALES_ORDER = {
 
 def test_parse_sap_date():
     assert parse_sap_date("/Date(1741564800000)/") == "2025-03-10"
+
+
+def test_default_gemini_model_is_25_flash():
+    assert GEMINI_MODEL == "gemini-2.5-flash"
 
 
 def test_load_dotenv_keeps_existing_environment(monkeypatch, tmp_path):
