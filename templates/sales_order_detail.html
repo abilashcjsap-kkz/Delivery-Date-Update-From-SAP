@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sales Order {{ sales_order }} Delivery Validation</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f4f7fb; color: #172033; }
+    header { background: linear-gradient(135deg, #163b75, #0f62fe); color: white; padding: 30px 42px; }
+    main { max-width: 1280px; margin: 0 auto; padding: 28px; }
+    h1, h2, h3 { margin-top: 0; }
+    .card { background: white; border: 1px solid #dfe5ef; border-radius: 16px; box-shadow: 0 12px 30px rgba(22, 59, 117, 0.08); margin-bottom: 22px; padding: 24px; }
+    .summary { display: grid; gap: 14px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .summary div { background: #f8fbff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; }
+    .label { color: #60708b; display: block; font-size: 0.78rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
+    .value { display: block; font-size: 1.05rem; font-weight: 800; margin-top: 5px; }
+    table { border-collapse: collapse; margin-top: 14px; width: 100%; }
+    th, td { border-bottom: 1px solid #e5eaf2; padding: 11px 10px; text-align: left; vertical-align: top; }
+    th { color: #46566f; font-size: 0.78rem; letter-spacing: 0.04em; text-transform: uppercase; }
+    .pill { background: #e8f1ff; border-radius: 999px; color: #0f62fe; display: inline-block; font-size: 0.78rem; font-weight: 800; padding: 4px 10px; }
+    .ok { background: #dcfce7; color: #166534; }
+    .error { background: #fff1f2; border: 1px solid #fecdd3; color: #9f1239; padding: 12px; border-radius: 10px; }
+    .muted { color: #60708b; }
+    .button, button { background: #0f62fe; border: 0; border-radius: 10px; color: white; cursor: pointer; display: inline-block; font-weight: 800; padding: 11px 16px; text-decoration: none; }
+    .secondary { background: #334155; }
+    pre { background: #0f172a; border-radius: 12px; color: #dbeafe; max-height: 360px; overflow: auto; padding: 16px; }
+    @media (max-width: 920px) { .summary { grid-template-columns: 1fr; } main { padding: 16px; } header { padding: 24px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <a class="button secondary" href="/">← Back to Search</a>
+    <h1>Sales Order {{ sales_order }} Item Delivery Validation</h1>
+    <p>Item details load from SAP OData. Delivery dates are auto-populated after SAP ship-to validation and Gemini AI planning.</p>
+  </header>
+  <main>
+    <section class="card">
+      <h2>Sales Order Basic Details</h2>
+      <div id="status" class="muted">Loading sales order from SAP...</div>
+      <div id="error"></div>
+      <div id="summary" class="summary" hidden></div>
+    </section>
+
+    <section class="card" id="shipToCard" hidden>
+      <h2>Ship-to Address Validation</h2>
+      <div id="shipTo"></div>
+    </section>
+
+    <section class="card" id="itemsCard" hidden>
+      <h2>Sales Order Item Details</h2>
+      <p class="muted">Delivery Date is populated automatically for each valid line item.</p>
+      <div id="itemsTable"></div>
+    </section>
+
+    <section class="card" id="aiCard" hidden>
+      <h2>Gemini AI Delivery Promise</h2>
+      <div id="answer" class="muted"></div>
+      <p><button id="traceToggle" class="secondary">Show Trace</button></p>
+      <pre id="trace" hidden></pre>
+    </section>
+  </main>
+
+  <script>
+    const SALES_ORDER = {{ sales_order|tojson }};
+    const byId = (id) => document.getElementById(id);
+    const htmlEscape = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char]));
+
+    function renderSummary(order) {
+      byId("summary").hidden = false;
+      byId("summary").innerHTML = `
+        <div><span class="label">Sales Order</span><span class="value">${htmlEscape(order.salesOrder)}</span></div>
+        <div><span class="label">Sold-to Party</span><span class="value">${htmlEscape(order.soldToParty)}</span></div>
+        <div><span class="label">Net Value</span><span class="value">${htmlEscape(order.currency)} ${htmlEscape(order.totalNetAmount)}</span></div>
+        <div><span class="label">Delivery Status</span><span class="value"><span class="pill">${htmlEscape(order.deliveryStatus || order.overallDeliveryStatus)}</span></span></div>
+        <div><span class="label">Created Date</span><span class="value">${htmlEscape(order.creationDate)}</span></div>
+        <div><span class="label">Created By</span><span class="value">${htmlEscape(order.createdBy)}</span></div>
+        <div><span class="label">Requested Delivery</span><span class="value">${htmlEscape(order.requestedDeliveryDate)}</span></div>
+        <div><span class="label">Customer PO</span><span class="value">${htmlEscape(order.purchaseOrderByCustomer)}</span></div>`;
+    }
+
+    function renderShipTo(shipTo) {
+      byId("shipToCard").hidden = false;
+      if (!shipTo || !shipTo.found) {
+        byId("shipTo").innerHTML = `<p class="error">Ship-to address was not found in ZI_SHIP_TO_CDS.</p>`;
+        return;
+      }
+      byId("shipTo").innerHTML = `
+        <p><strong>${htmlEscape(shipTo.name)}</strong> <span class="pill">Partner ${htmlEscape(shipTo.partner)}</span></p>
+        <p>${htmlEscape(shipTo.address)}</p>`;
+    }
+
+    function renderItems(order, lineResults = []) {
+      const resultsByItem = Object.fromEntries(lineResults.map((line) => [line.salesOrderItem, line]));
+      byId("itemsCard").hidden = false;
+      byId("itemsTable").innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>Item</th><th>Material</th><th>Description</th><th>Qty</th><th>Unit</th><th>Plant</th><th>Item Status</th><th>Delivery Date</th><th>Validation</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${order.items.map((item) => {
+              const result = resultsByItem[item.salesOrderItem] || {};
+              return `
+                <tr>
+                  <td>${htmlEscape(item.salesOrderItem)}</td>
+                  <td>${htmlEscape(item.material)}</td>
+                  <td>${htmlEscape(item.description)}</td>
+                  <td>${htmlEscape(item.quantity)}</td>
+                  <td>${htmlEscape(item.unit)}</td>
+                  <td>${htmlEscape(item.plant)}</td>
+                  <td>${htmlEscape(item.deliveryStatus)}</td>
+                  <td><strong>${htmlEscape(result.deliveryDate || "Validating...")}</strong></td>
+                  <td><span class="pill ${result.validationStatus === "Validated" ? "ok" : ""}">${htmlEscape(result.validationStatus || "Pending")}</span><br><span class="muted">${htmlEscape(result.validationMessage || "")}</span></td>
+                </tr>`;
+            }).join("")}
+          </tbody>
+        </table>`;
+    }
+
+    async function validateDelivery(order) {
+      byId("status").textContent = "Validating ship-to address and generating Gemini delivery dates...";
+      const response = await fetch("/api/delivery-validation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          salesOrder: order.salesOrder,
+          customerNumber: order.soldToParty,
+          customer: order.soldToParty,
+          lines: order.items,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Unable to validate delivery dates.");
+      renderShipTo(data.shipToAddress);
+      renderItems(order, data.lineResults || []);
+      byId("aiCard").hidden = false;
+      byId("answer").textContent = data.answer || "Delivery validation completed.";
+      byId("trace").textContent = JSON.stringify(data.toolTrace || [], null, 2);
+      byId("status").textContent = `Delivery dates populated. Mode: ${data.mode}, Gemini turns: ${data.turns}.`;
+    }
+
+    async function loadSalesOrder() {
+      try {
+        const response = await fetch(`/api/sales-orders/${encodeURIComponent(SALES_ORDER)}`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Sales order not found.");
+        const order = data.salesOrder;
+        renderSummary(order);
+        renderItems(order, []);
+        await validateDelivery(order);
+      } catch (error) {
+        byId("status").textContent = "";
+        byId("error").innerHTML = `<p class="error">${htmlEscape(error.message)}</p>`;
+      }
+    }
+
+    byId("traceToggle").addEventListener("click", () => {
+      const trace = byId("trace");
+      trace.hidden = !trace.hidden;
+      byId("traceToggle").textContent = trace.hidden ? "Show Trace" : "Hide Trace";
+    });
+
+    loadSalesOrder();
+  </script>
+</body>
+</html>
