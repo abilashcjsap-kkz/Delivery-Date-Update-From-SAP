@@ -237,3 +237,53 @@ def test_delivery_validation_autopopulates_line_results(client, monkeypatch):
     assert data["shipToAddress"]["partner"] == "6100000"
     assert data["lineResults"][0]["deliveryDate"] == "2026-06-07"
     assert data["lineResults"][0]["validationStatus"] == "Validated"
+
+
+def test_gemini_429_uses_openai_fallback(monkeypatch):
+    agent = importlib.import_module("agent")
+    calls = []
+
+    class FakeResponse:
+        def __init__(self, status_code, payload):
+            self.status_code = status_code
+            self._payload = payload
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise RuntimeError(f"HTTP {self.status_code}")
+
+        def json(self):
+            return self._payload
+
+    def fake_post(url, **kwargs):
+        calls.append({"url": url, "kwargs": kwargs})
+        if "generativelanguage" in url:
+            return FakeResponse(429, {"error": {"message": "rate limit"}})
+        return FakeResponse(
+            200,
+            {
+                "id": "resp_test",
+                "status": "completed",
+                "model": "gpt-4.1-mini",
+                "output_text": "OpenAI fallback delivery promise",
+            },
+        )
+
+    monkeypatch.setattr(agent, "GEMINI_API_KEY", "gemini-key")
+    monkeypatch.setattr(agent, "OPENAI_API_KEY", "openai-key")
+    monkeypatch.setattr(agent, "OPENAI_MODEL", "gpt-4.1-mini")
+    monkeypatch.setattr(agent, "_post_json", fake_post)
+
+    result = agent.run_gemini_agent(
+        "Customer",
+        "Ship To Street",
+        [{"salesOrderItem": "10", "material": "6000000195", "quantity": 10}],
+        customer_number="6100000",
+    )
+
+    assert result["mode"] == "openai_fallback_after_gemini_429"
+    assert result["answer"] == "OpenAI fallback delivery promise"
+    assert calls[0]["url"].startswith("https://generativelanguage.googleapis.com")
+    assert calls[1]["url"] == agent.OPENAI_URL
+    assert calls[1]["kwargs"]["headers"]["Authorization"] == "Bearer openai-key"
+    assert result["tool_trace"][-1]["tool"] == "openai_fallback"

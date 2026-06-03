@@ -36,3 +36,7 @@ GEMINI_URL = os.getenv(
     "GEMINI_URL",
     f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}",
 )
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+OPENAI_URL = os.getenv("OPENAI_URL", "https://api.openai.com/v1/responses")
